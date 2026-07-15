@@ -1,3 +1,37 @@
+node_modules/
+/.pnp/
+.pnp.js
+build/
+dist/
+.cache/
+.parcel-cache/
+coverage/
+
+# Env files
+.env
+.env.*.local
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Mac
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Backend node modules
+/backend-galletas/node_modules/
+
+# Temporary
+*.tmp
+*.temp
+
+# Optional: local database or uploads
+# backend-galletas/data/*.json
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies

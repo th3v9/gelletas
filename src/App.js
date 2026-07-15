@@ -1,7 +1,15 @@
 import './App.css';
 import { useEffect, useMemo, useState } from 'react';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import Producto from './components/Producto';
+import TablaProductos from './components/TablaProductos';
+import FormularioProducto from './components/FormularioProducto';
+import Alert from './components/Alert';
+import Confirm from './components/Confirm';
 
 function App() {
+  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:3002';
   const [galletas, setGalletas] = useState(() => {
     const guardadas = localStorage.getItem('galletas');
 
@@ -47,6 +55,14 @@ function App() {
   const [imagenPreview, setImagenPreview] = useState('');
   const [errorImagen, setErrorImagen] = useState('');
   const [editarId, setEditarId] = useState(null);
+  const [formErrors, setFormErrors] = useState([]);
+  const [alert, setAlert] = useState({ type: '', message: '' });
+  const [confirm, setConfirm] = useState({ visible: false, id: null, name: null });
+
+  const showAlert = (message, type = 'success') => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert({ type: '', message: '' }), 4000);
+  };
   const [busqueda, setBusqueda] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [filtroStock, setFiltroStock] = useState('Todas');
@@ -56,6 +72,21 @@ function App() {
   useEffect(() => {
     localStorage.setItem('galletas', JSON.stringify(galletas));
   }, [galletas]);
+
+  // Cargar desde backend (si está disponible)
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/productos`);
+        if (!res.ok) throw new Error('No se pudo obtener productos');
+        const data = await res.json();
+        setGalletas(data.map((p) => ({ ...p, precio: String(p.precio) })));
+      } catch (err) {
+        console.warn('Backend no disponible, usando datos locales');
+      }
+    };
+    cargar();
+  }, [API_BASE]);
 
   useEffect(() => {
     if (!galletaActiva && galletas.length > 0) {
@@ -92,47 +123,75 @@ function App() {
     setImagen(null);
     setImagenPreview('');
     setErrorImagen('');
+    setFormErrors([]);
   };
-
   const agregarGalleta = () => {
-    if (!nombre || !descripcion || !precio || !categoria || stock === '') {
-      alert('Completa todos los campos.');
+    const clientErrors = [];
+    if (!nombre) clientErrors.push('nombre vacío');
+    if (!categoria) clientErrors.push('categoría vacía');
+    if (!precio || Number(precio) <= 0) clientErrors.push('precio inválido');
+    if (stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0) clientErrors.push('stock inválido');
+    if (clientErrors.length) {
+      setFormErrors(clientErrors);
       return;
     }
 
-    if (Number(stock) < 0) {
-      alert('El stock no puede ser negativo.');
-      return;
-    }
-
-    const nuevaGalleta = {
-      id: Date.now(),
+    const payload = {
       nombre,
       descripcion,
-      precio,
       categoria,
+      precio: Number(precio),
       stock: Number(stock),
       imagen: imagen || 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&h=300&fit=crop',
     };
 
-    setGalletas([...galletas, nuevaGalleta]);
-    setGalletaActiva(nuevaGalleta);
-    limpiarFormulario();
+    setFormErrors([]);
+    fetch(`${API_BASE}/productos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e));
+        return r.json();
+      })
+      .then((nuevo) => {
+        setGalletas([...galletas, { ...nuevo, precio: String(nuevo.precio) }]);
+        setGalletaActiva(nuevo);
+        limpiarFormulario();
+        showAlert('Galleta creada correctamente', 'success');
+      })
+      .catch((err) => {
+        const msgs = err?.errors || [err.message || 'Error al crear en el servidor'];
+        setFormErrors(msgs);
+      });
   };
 
-  const eliminarGalleta = (id) => {
-    if (!window.confirm('¿Deseas eliminar esta galleta?')) return;
+  const solicitarEliminarGalleta = (producto) => {
+    setConfirm({ visible: true, id: producto.id, name: producto.nombre });
+  };
 
-    setGalletas(galletas.filter((galleta) => galleta.id !== id));
+  const realizarEliminarGalleta = (id) => {
+    setConfirm({ visible: false, id: null, name: null });
+    fetch(`${API_BASE}/productos/${id}`, { method: 'DELETE' })
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e));
+        return r.json();
+      })
+      .then(() => {
+        setGalletas(galletas.filter((galleta) => galleta.id !== id));
 
-    if (galletaActiva?.id === id) {
-      setGalletaActiva(null);
-    }
+        if (galletaActiva?.id === id) {
+          setGalletaActiva(null);
+        }
 
-    if (editarId === id) {
-      setEditarId(null);
-      limpiarFormulario();
-    }
+        if (editarId === id) {
+          setEditarId(null);
+          limpiarFormulario();
+        }
+        showAlert('Galleta eliminada', 'success');
+      })
+      .catch((err) => showAlert('Error al eliminar: ' + (err?.error || err.message || err), 'error'));
   };
 
   const cargarEdicion = (galleta) => {
@@ -145,43 +204,52 @@ function App() {
     setImagenPreview(galleta.imagen);
     setImagen(galleta.imagen);
     setGalletaActiva(galleta);
+    setFormErrors([]);
   };
 
   const actualizarGalleta = () => {
-    if (!nombre || !descripcion || !precio || !categoria || stock === '') {
-      alert('Completa todos los campos.');
+    const clientErrors = [];
+    if (!nombre) clientErrors.push('nombre vacío');
+    if (!categoria) clientErrors.push('categoría vacía');
+    if (!precio || Number(precio) <= 0) clientErrors.push('precio inválido');
+    if (stock === '' || !Number.isInteger(Number(stock)) || Number(stock) < 0) clientErrors.push('stock inválido');
+    if (clientErrors.length) {
+      setFormErrors(clientErrors);
       return;
     }
-
     const imagenFinal = imagen || imagenPreview;
-
-    setGalletas(
-      galletas.map((galleta) =>
-        galleta.id === editarId
-          ? {
-              ...galleta,
-              nombre,
-              descripcion,
-              precio,
-              categoria,
-              stock: Number(stock),
-              imagen: imagenFinal || galleta.imagen,
-            }
-          : galleta,
-      ),
-    );
-
-    setGalletaActiva({
-      id: editarId,
+    const payload = {
       nombre,
       descripcion,
-      precio,
       categoria,
+      precio: Number(precio),
       stock: Number(stock),
       imagen: imagenFinal,
-    });
-    setEditarId(null);
-    limpiarFormulario();
+    };
+
+    setFormErrors([]);
+    fetch(`${API_BASE}/productos/${editarId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e));
+        return r.json();
+      })
+      .then((actualizado) => {
+        setGalletas(
+          galletas.map((galleta) => (galleta.id === actualizado.id ? { ...actualizado, precio: String(actualizado.precio) } : galleta)),
+        );
+        setGalletaActiva(actualizado);
+        setEditarId(null);
+        limpiarFormulario();
+        showAlert('Galleta actualizada', 'success');
+      })
+      .catch((err) => {
+        const msgs = err?.errors || [err.message || 'Error al actualizar en el servidor'];
+        setFormErrors(msgs);
+      });
   };
 
   const categoriasUnicas = ['Todas', ...new Set(galletas.map((galleta) => galleta.categoria))];
@@ -225,29 +293,15 @@ function App() {
 
   return (
     <div className="pagina">
-      <header className="header">
-        <div className="header-contenido header-grid">
-          <div className="logo">
-            <span className="logo-icono">🍪</span>
-            <div>
-              <p className="kicker">Cookie Studio</p>
-              <h1 className="logo-nombre">Cookie Haven</h1>
-              <p className="logo-slogan">Diseña, busca y modifica tu catálogo con una interfaz más viva</p>
-            </div>
-          </div>
-
-          <div className="header-metricas">
-            <div className="contador">
-              <span className="contador-numero">{galletas.length}</span>
-              <span className="contador-texto">Galletas en catálogo</span>
-            </div>
-            <div className="contador contador-secundario">
-              <span className="contador-numero">{categoriasActivas}</span>
-              <span className="contador-texto">Categorías activas</span>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Navbar totalCount={galletas.length} categoriasCount={categoriasActivas} />
+      <Alert type={alert.type} message={alert.message} onClose={() => setAlert({ type: '', message: '' })} />
+      <Confirm
+        visible={confirm.visible}
+        title="Confirmar eliminación"
+        message={confirm.name ? `¿Deseas eliminar "${confirm.name}"? Esta acción no se puede deshacer.` : '¿Deseas eliminar esta galleta? Esta acción no se puede deshacer.'}
+        onConfirm={() => realizarEliminarGalleta(confirm.id)}
+        onCancel={() => setConfirm({ visible: false, id: null, name: null })}
+      />
 
       <main className="main">
         <section className="hero">
@@ -356,34 +410,7 @@ function App() {
               </div>
             </div>
 
-            {galletaDestacada ? (
-              <article className="destacado">
-                <img src={galletaDestacada.imagen} alt={galletaDestacada.nombre} className="destacado-imagen" />
-                <div className="destacado-cuerpo">
-                  <div className={`badge-categoria badge-${galletaDestacada.categoria.toLowerCase().replace(/\s+/g, '-')}`}>
-                    {galletaDestacada.categoria}
-                  </div>
-                  <h3>{galletaDestacada.nombre}</h3>
-                  <p>{galletaDestacada.descripcion}</p>
-                  <div className="destacado-metas">
-                    <span>${Number(galletaDestacada.precio).toLocaleString('es-CL')}</span>
-                    <span>{Number(galletaDestacada.stock) > 0 ? `Stock ${galletaDestacada.stock}` : 'Agotada'}</span>
-                  </div>
-                  <div className="card-acciones card-acciones-amplias">
-                    <button className="btn-editar" onClick={() => cargarEdicion(galletaDestacada)}>
-                      ✏️ Editar ahora
-                    </button>
-                    <button className="btn-eliminar" onClick={() => eliminarGalleta(galletaDestacada.id)}>
-                      🗑️ Eliminar
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ) : (
-              <div className="catalogo-vacio">
-                <p>No hay una galleta seleccionada todavía.</p>
-              </div>
-            )}
+            <Producto producto={galletaDestacada} onEdit={cargarEdicion} onDelete={solicitarEliminarGalleta} onSelect={setGalletaActiva} />
           </section>
 
           <aside className="seccion-panel panel-lateral">
@@ -401,7 +428,7 @@ function App() {
               </div>
               <div>
                 <span>02</span>
-                <p>Abre una tarjeta para verla destacada y entra a editarla.</p>
+                <p>Abre una ficha para verla destacada y entra a editarla.</p>
               </div>
               <div>
                 <span>03</span>
@@ -422,64 +449,29 @@ function App() {
             </p>
           </div>
 
-          <div className="formulario formulario-editor">
-            <div className="campo">
-              <label>Nombre</label>
-              <input type="text" placeholder="Ej: Choco Chip Clásica" value={nombre} onChange={(e) => setNombre(e.target.value)} />
-            </div>
-            <div className="campo">
-              <label>Precio (CLP)</label>
-              <input type="number" placeholder="Ej: 1990" value={precio} onChange={(e) => setPrecio(e.target.value)} />
-            </div>
-            <div className="campo">
-              <label>Categoría</label>
-              <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                <option value="">Seleccionar...</option>
-                <option value="Chocolate">Chocolate</option>
-                <option value="Frutal">Frutal</option>
-                <option value="Artesanal">Artesanal</option>
-                <option value="Rellena">Rellena</option>
-                <option value="Sin gluten">Sin gluten</option>
-                <option value="Vegan">Vegan</option>
-              </select>
-            </div>
-            <div className="campo">
-              <label>Stock</label>
-              <input type="number" placeholder="Ej: 20" value={stock} min="0" onChange={(e) => setStock(e.target.value)} />
-            </div>
-            <div className="campo campo-ancho">
-              <label>Descripción</label>
-              <textarea placeholder="Describe la galleta..." value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={4} />
-            </div>
-            <div className="campo campo-ancho">
-              <label>Imagen</label>
-              <input type="file" accept="image/*" onChange={manejarImagen} className="input-archivo" />
-              {errorImagen && <p className="error-imagen">{errorImagen}</p>}
-              {imagenPreview && <img src={imagenPreview} alt="Preview" className="imagen-preview" />}
-            </div>
-            <div className="campo-botones">
-              {editarId ? (
-                <>
-                  <button className="btn-guardar" onClick={actualizarGalleta}>
-                    💾 Guardar cambios
-                  </button>
-                  <button
-                    className="btn-cancelar"
-                    onClick={() => {
-                      setEditarId(null);
-                      limpiarFormulario();
-                    }}
-                  >
-                    ✖ Cancelar
-                  </button>
-                </>
-              ) : (
-                <button className="btn-agregar" onClick={agregarGalleta}>
-                  🍪 Agregar galleta
-                </button>
-              )}
-            </div>
-          </div>
+          <FormularioProducto
+            editarId={editarId}
+            nombre={nombre}
+            setNombre={setNombre}
+            descripcion={descripcion}
+            setDescripcion={setDescripcion}
+            precio={precio}
+            setPrecio={setPrecio}
+            categoria={categoria}
+            setCategoria={setCategoria}
+            stock={stock}
+            setStock={setStock}
+            manejarImagen={manejarImagen}
+            imagenPreview={imagenPreview}
+            errorImagen={errorImagen}
+            formErrors={formErrors}
+            onAdd={agregarGalleta}
+            onUpdate={actualizarGalleta}
+            onCancel={() => {
+              setEditarId(null);
+              limpiarFormulario();
+            }}
+          />
         </section>
 
         <section className="seccion-catalogo">
@@ -493,64 +485,15 @@ function App() {
             </p>
           </div>
 
-          {galletasFiltradas.length === 0 ? (
-            <div className="catalogo-vacio">
-              <p>No encontramos coincidencias con esos filtros. Prueba otra categoría o limpia la búsqueda.</p>
-            </div>
-          ) : (
-            <div className="grid-galletas">
-              {galletasFiltradas.map((galleta) => (
-                <div
-                  className={`card ${galletaActiva?.id === galleta.id ? 'card-activa' : ''}`}
-                  key={galleta.id}
-                  onClick={() => setGalletaActiva(galleta)}
-                >
-                  <div className="card-imagen-wrapper">
-                    <img src={galleta.imagen} alt={galleta.nombre} className="card-imagen" />
-                    <span className={`badge-categoria badge-${galleta.categoria.toLowerCase().replace(/\s+/g, '-')}`}>
-                      {galleta.categoria}
-                    </span>
-                  </div>
-                  <div className="card-cuerpo">
-                    <h3 className="card-nombre">{galleta.nombre}</h3>
-                    <p className="card-descripcion">{galleta.descripcion}</p>
-                    <div className="card-meta">
-                      <span className="card-precio">${Number(galleta.precio).toLocaleString('es-CL')}</span>
-                      <span className={`card-stock ${galleta.stock === 0 ? 'sin-stock' : 'con-stock'}`}>
-                        {galleta.stock === 0 ? 'Agotado' : `Stock: ${galleta.stock}`}
-                      </span>
-                    </div>
-                    <div className="card-acciones">
-                      <button
-                        className="btn-editar"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          cargarEdicion(galleta);
-                        }}
-                      >
-                        ✏️ Editar
-                      </button>
-                      <button
-                        className="btn-eliminar"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          eliminarGalleta(galleta.id);
-                        }}
-                      >
-                        🗑️ Eliminar
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="seccion-catalogo">
+          <TablaProductos productos={galletasFiltradas} onEdit={cargarEdicion} onDelete={solicitarEliminarGalleta} onSelect={setGalletaActiva} />
+        </div>
+        
+        
+        
         </section>
       </main>
-
-      <footer className="footer">
-        <p>🍪 Cookie Haven — Un catálogo más editorial, ágil y fácil de explorar</p>
-      </footer>
+      <Footer />
     </div>
   );
 }

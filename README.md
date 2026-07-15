@@ -68,3 +68,46 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+## Run Backend + Frontend (local development)
+
+This repository contains a React frontend (root) and an Express backend in `backend-galletas`.
+
+Recommended ports:
+- Frontend: `3000` (Create React App default)
+- Backend: `3002` (configured in `.env` as `REACT_APP_API_BASE`)
+
+Quick start:
+
+1. Install dependencies (frontend):
+
+```bash
+cd /home/th3vg/galletas
+npm install
+```
+
+2. Install backend dependencies and start backend on port 3002:
+
+```bash
+cd backend-galletas
+npm install
+# start backend on 3002
+PORT=3002 npm start
+```
+
+3. Start the frontend (from repository root):
+
+```bash
+cd /home/th3vg/galletas
+npm start
+```
+
+Notes:
+- The frontend reads the API base URL from the `.env` file at the project root: `REACT_APP_API_BASE=http://localhost:3002`. If you run the backend on a different port, update that value and restart the frontend.
+- API data is persisted to `backend-galletas/data/productos.json`.
+- Backend scripts are defined in `backend-galletas/package.json` (`start` and `dev` — `dev` uses `nodemon` if you have it installed globally).
+
+Optional improvements you may want to add:
+- Add an npm script in the root to start both backend and frontend concurrently (e.g., using `concurrently`).
+- Add a confirmation modal for deletions and more detailed logging in the backend.
+
